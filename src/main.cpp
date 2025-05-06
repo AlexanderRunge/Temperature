@@ -230,6 +230,7 @@ void setup() {
 
 void loop() {
   unsigned long currentTime = millis();
+  digitalWrite(LED_PIN, LOW);
 
   if (!alreadyActivated) {
     if (currentTime - lastCheckTime >= 1000) {
@@ -258,6 +259,7 @@ void loop() {
           Serial.println(newSSID);
 
           Serial.println("LED turned ON after 10 seconds hold");
+          ESP.restart();
         }
       } else {
         if (holdSeconds > 0) {
