@@ -9,8 +9,10 @@
 #include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
 #include "LittleFS.h"
+#include "time.h"
 #include <OneWire.h>
 #include <DallasTemperature.h>
+
 
 // Create AsyncWebServer object on port 80
 AsyncWebServer server(80);
@@ -26,7 +28,7 @@ String pass;
 String ip;
 String gateway;
 
-// File paths to save input values permanently
+// File paths to save input values permanentlya
 const char* ssidPath = "/ssid.txt";
 const char* passPath = "/pass.txt";
 
@@ -66,8 +68,24 @@ bool alreadyActivated = false;
 void initLittleFS() {
   if (!LittleFS.begin(true)) {
     Serial.println("An error has occurred while mounting LittleFS");
+  } else {
+    Serial.println("LittleFS mounted successfully");
   }
-  Serial.println("LittleFS mounted successfully");
+}
+
+void readLogCSV() {
+  File file = LittleFS.open("/log.csv", "r");
+  if (!file) {
+    Serial.println("❌ Kunne ikke åbne log.csv");
+    return;
+  }
+
+  Serial.println("📄 Indhold af log.csv:");
+  while (file.available()) {
+    String line = file.readStringUntil('\n');
+    Serial.println(line);
+  }
+  file.close();
 }
 
 String temp(){
@@ -186,6 +204,34 @@ String processor(const String& var) {
   return String();
 }
 
+// Log data to CSV file
+void logDataToCSV(const String &value) {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    Serial.println("Kunne ikke hente tid");
+    return;
+  }
+
+  // Format time as YYYY-MM-DD HH:MM:SS
+  char timeString[25];
+  strftime(timeString, sizeof(timeString), "%Y-%m-%d %H:%M:%S", &timeinfo);
+  String logLine = String(timeString) + "," + value + "\n";
+
+  // Append to CSV file
+  File file = LittleFS.open("/log.csv", FILE_APPEND);
+  if (!file) {
+    Serial.println("Kunne ikke åbne log.csv");
+    return;
+  }
+  // Check if file is empty and write header if it is
+  file.print(logLine);
+  file.close();
+  Serial.println("Logget: " + logLine);
+}
+
+unsigned long lastLogTime = 0;
+const unsigned long logInterval = 10000; // 5 minutter i millisekunder
+bool timeInitialized = false;
 
 void setup() {
   // Serial port for debugging purposes
@@ -193,6 +239,8 @@ void setup() {
   sensors.begin();
 
   initLittleFS();
+
+  readLogCSV();
 
   // Set GPIO 2 as an OUTPUT
   pinMode(ledPin, OUTPUT);
@@ -279,6 +327,25 @@ void setup() {
     });
     server.begin();
   }
+
+  // Setup tid med NTP (kun hvis WiFi er forbundet)
+  if (WiFi.status() == WL_CONNECTED) {
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    struct tm timeinfo;
+    int retry = 0;
+    while (!getLocalTime(&timeinfo) && retry < 10) {
+      Serial.print(".");
+      delay(1000);
+      retry++;
+    }
+    if (retry < 10) {
+      Serial.println("\n✅ Tid hentet");
+      Serial.println("");
+      timeInitialized = true;
+    } else {
+      Serial.println("\n❌ Kunne ikke hente tid");
+    }
+  }
 }
 
 void loop() {
@@ -327,5 +394,22 @@ void loop() {
     digitalWrite(LED_PIN, LOW);
     ledOn = false;
     Serial.println("LED turned OFF after 5 seconds");
+  }
+
+  // Log data hver 5. minut, men kun hvis vi har internet og tid er sat
+  if (WiFi.status() == WL_CONNECTED && timeInitialized && millis() - lastLogTime >= logInterval) {
+    lastLogTime = millis();
+    String ledValue = digitalRead(ledPin) ? "ON" : "OFF";
+    logDataToCSV(ledValue);
+  }
+
+  // Hvis vi ikke har tid endnu, prøv igen når der er internet
+  if (!timeInitialized && WiFi.status() == WL_CONNECTED) {
+    struct tm timeinfo;
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    if (getLocalTime(&timeinfo)) {
+      Serial.println("⏱️ Tid er nu synkroniseret");
+      timeInitialized = true;
+    }
   }
 }
