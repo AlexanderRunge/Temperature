@@ -97,9 +97,7 @@ void readLogCSV() {
 String temp() {
   sensors.requestTemperatures(); 
   float celsius = sensors.getTempCByIndex(0);
-  Serial.print("Celsius: ");
-  Serial.println(celsius);
-  return String(celsius, 2) + " °C"; // Format temperature to 1 decimal place
+  return String(celsius, 2) + " °C"; // Format temperature to 2 decimal place
 }
 
 // Read File from LittleFS
@@ -211,29 +209,51 @@ String processor(const String& var) {
   return String();
 }
 
+// Serve the CSV file content
+void serveCSV(AsyncWebServerRequest *request) {
+  File file = LittleFS.open("/log.csv", "r");
+  if (!file) {
+    request->send(500, "text/plain", "Failed to open CSV file");
+    return;
+  }
+
+  String csvData;
+  while (file.available()) {
+    csvData += file.readStringUntil('\n') + "\n";
+  }
+  file.close();
+
+  request->send(200, "text/plain", csvData);
+}
+
 // Log data to CSV file
-void logDataToCSV(const String &value) {
+void logDataToCSV() {
   struct tm timeinfo;
   if (!getLocalTime(&timeinfo)) {
-    Serial.println("Kunne ikke hente tid");
+    Serial.println("❌ Could not fetch time");
     return;
   }
 
   // Format time as YYYY-MM-DD HH:MM:SS
   char timeString[25];
   strftime(timeString, sizeof(timeString), "%Y-%m-%d %H:%M:%S", &timeinfo);
-  String logLine = String(timeString) + "," + value + "\n";
+
+  // Get the current temperature
+  String temperature = temp();
+
+  // Create a log line with time and temperature
+  String logLine = String(timeString) + "," + temperature; // Ensure newline character
 
   // Append to CSV file
   File file = LittleFS.open("/log.csv", FILE_APPEND);
   if (!file) {
-    Serial.println("Kunne ikke åbne log.csv");
+    Serial.println("❌ Could not open log.csv");
     return;
   }
-  // Check if file is empty and write header if it is
-  file.print(logLine);
+
+  file.println(logLine); // Write the log line
   file.close();
-  Serial.println("Logget: " + logLine);
+  Serial.println("✅ Logged: " + logLine);
 }
 
 unsigned long lastLogTime = 0;
@@ -275,11 +295,7 @@ void setup() {
     });
     server.serveStatic("/", LittleFS, "/");
 
-    // Route to set GPIO state to HIGH
-    server.on("/on", HTTP_GET, [](AsyncWebServerRequest *request) {
-      digitalWrite(ledPin, HIGH);
-      request->send(LittleFS, "/index.html", "text/html", false, processor);
-    });
+    server.on("/csv", HTTP_GET, serveCSV);
 
     // Route to set GPIO state to LOW
     server.on("/off", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -362,13 +378,6 @@ void setup() {
 
 void loop() {
   ws.cleanupClients();
-  
-  // Broadcast temperature to all clients every 5 seconds
-  unsigned long currentMillis = millis();
-  if (currentMillis - lastBroadcastTime >= broadcastInterval) {
-    lastBroadcastTime = currentMillis;
-    notifyClients(); // Send temperature update to all connected clients
-  }
 
   unsigned long currentTime = millis();
   digitalWrite(LED_PIN, LOW);
@@ -419,8 +428,7 @@ void loop() {
   // Log data hver 5. minut, men kun hvis vi har internet og tid er sat
   if (WiFi.status() == WL_CONNECTED && timeInitialized && millis() - lastLogTime >= logInterval) {
     lastLogTime = millis();
-    String ledValue = digitalRead(ledPin) ? "ON" : "OFF";
-    logDataToCSV(ledValue);
+    logDataToCSV();
   }
 
   // Hvis vi ikke har tid endnu, prøv igen når der er internet
