@@ -286,6 +286,11 @@ void setup() {
       digitalWrite(ledPin, LOW);
       request->send(LittleFS, "/index.html", "text/html", false, processor);
     });
+
+    // Route to download log.csv
+    server.on("/download", HTTP_GET, [](AsyncWebServerRequest *request) {
+      request->send(LittleFS, "/log.csv", "text/csv", true);
+    }); 
     server.begin();
   }
   else {
