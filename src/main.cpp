@@ -9,9 +9,21 @@
 #include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
 #include "LittleFS.h"
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <time.h>
 
 // Create AsyncWebServer object on port 80
 AsyncWebServer server(80);
+
+// GPIO where the DS18B20 is connected to
+const int oneWireBus = 4;     
+
+// Setup a oneWire instance to communicate with any OneWire devices
+OneWire oneWire(oneWireBus);
+
+// Pass our oneWire reference to Dallas Temperature sensor 
+DallasTemperature sensors(&oneWire);
 
 // Search for parameter in HTTP POST request
 const char* PARAM_INPUT_1 = "ssid";
@@ -51,7 +63,9 @@ int holdSeconds = 0;
 bool ledOn = false;
 bool alreadyActivated = false;
 
-//
+// Logging interval (5 minutes)
+const unsigned long interval = 300000;
+unsigned long lastLogTime = 0;
 
 // Initialize LittleFS
 void initLittleFS() {
@@ -136,6 +150,16 @@ String processor(const String& var) {
   return String();
 }
 
+void readTemperature() {
+  sensors.requestTemperatures(); 
+  float temperatureC = sensors.getTempCByIndex(0);
+  float temperatureF = sensors.getTempFByIndex(0);
+  Serial.print(temperatureC);
+  Serial.println("ºC");
+  Serial.print(temperatureF);
+  Serial.println("ºF");
+}
+
 void setup() {
   // Serial port for debugging purposes
   Serial.begin(115200);
@@ -179,6 +203,8 @@ void setup() {
       request->send(LittleFS, "/index.html", "text/html", false, processor);
     });
     server.begin();
+    // Start the DS18B20 sensor
+    sensors.begin();
   }
   else {
     // Connect to Wi-Fi network with SSID and password
