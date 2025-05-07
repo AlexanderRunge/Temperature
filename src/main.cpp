@@ -163,7 +163,9 @@ void logDataToCSV(const String &value) {
   Serial.println("Logget: " + logLine);
 }
 
-
+unsigned long lastLogTime = 0;
+const unsigned long logInterval = 300000; // 5 minutter i millisekunder
+bool timeInitialized = false;
 
 void setup() {
   // Serial port for debugging purposes
@@ -256,18 +258,26 @@ void setup() {
     server.begin();
   }
 
-  //Setup timelogging
-  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-  struct tm timeinfo;
-  if (!getLocalTime(&timeinfo)) {
-    Serial.println("Failed to obtain time");
+  // Setup tid med NTP (kun hvis WiFi er forbundet)
+  if (WiFi.status() == WL_CONNECTED) {
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    struct tm timeinfo;
+    int retry = 0;
+    while (!getLocalTime(&timeinfo) && retry < 10) {
+      Serial.print(".");
+      delay(1000);
+      retry++;
+    }
+    if (retry < 10) {
+      Serial.println("\n✅ Tid hentet");
+      timeInitialized = true;
+    } else {
+      Serial.println("\n❌ Kunne ikke hente tid");
+    }
   }
 }
 
 void loop() {
-  unsigned long lastLogTime = 0;
-  const unsigned long logInterval = 300000; // 5 minutter i millisekunder
-
   unsigned long currentTime = millis();
   digitalWrite(LED_PIN, LOW);
 
@@ -314,12 +324,20 @@ void loop() {
     Serial.println("LED turned OFF after 5 seconds");
   }
 
-  // Log data every 5 minutes
-  if (millis() - lastLogTime >= logInterval) {
+  // Log data hver 5. minut, men kun hvis vi har internet og tid er sat
+  if (WiFi.status() == WL_CONNECTED && timeInitialized && millis() - lastLogTime >= logInterval) {
     lastLogTime = millis();
-
-    //log LED-tilstand
     String ledValue = digitalRead(ledPin) ? "ON" : "OFF";
     logDataToCSV(ledValue);
+  }
+
+  // Hvis vi ikke har tid endnu, prøv igen når der er internet
+  if (!timeInitialized && WiFi.status() == WL_CONNECTED) {
+    struct tm timeinfo;
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    if (getLocalTime(&timeinfo)) {
+      Serial.println("⏱️ Tid er nu synkroniseret");
+      timeInitialized = true;
+    }
   }
 }
