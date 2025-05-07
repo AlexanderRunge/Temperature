@@ -9,9 +9,12 @@
 #include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
 #include "LittleFS.h"
+#include <OneWire.h>
+#include <DallasTemperature.h>
 
 // Create AsyncWebServer object on port 80
 AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
 
 // Search for parameter in HTTP POST request
 const char* PARAM_INPUT_1 = "ssid";
@@ -33,6 +36,12 @@ IPAddress localIP;
 // Timer variables
 unsigned long previousMillis = 0;
 const long interval = 10000;  // interval to wait for Wi-Fi connection (milliseconds)
+
+const int oneWireBus = 4;   
+
+OneWire oneWire(oneWireBus);
+
+DallasTemperature sensors(&oneWire);
 
 // Set LED GPIO
 const int ledPin = 2;
@@ -59,6 +68,14 @@ void initLittleFS() {
     Serial.println("An error has occurred while mounting LittleFS");
   }
   Serial.println("LittleFS mounted successfully");
+}
+
+String temp(){
+  sensors.requestTemperatures(); 
+  float celsius = sensors.getTempCByIndex(0);
+  Serial.print("Celsius: ");
+  Serial.println(celsius);
+  return String(celsius) + " °C";
 }
 
 // Read File from LittleFS
@@ -122,23 +139,58 @@ bool initWiFi() {
   return true;
 }
 
+void notifyClients() {
+  ws.textAll(temp());
+}
+
+void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
+  AwsFrameInfo *info = (AwsFrameInfo*)arg;
+  if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+    data[len] = 0;
+    if (strcmp((char*)data, "update") == 0) {
+      Serial.println("Update request received from client.");
+      temp();
+      notifyClients();
+    }
+  }
+}
+
+void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
+  switch (type) {
+    case WS_EVT_CONNECT:
+      Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+      break;
+    case WS_EVT_DISCONNECT:
+      Serial.printf("WebSocket client #%u disconnected\n", client->id());
+      break;
+    case WS_EVT_DATA:
+      handleWebSocketMessage(arg, data, len);
+      break;
+    case WS_EVT_PONG:
+    case WS_EVT_ERROR:
+      break;
+  }
+}
+
+void initWebSocket() {
+  ws.onEvent(onEvent);
+  server.addHandler(&ws);
+}
+
 // Replaces placeholder with LED state value
 String processor(const String& var) {
-  if(var == "STATE") {
-    if(digitalRead(ledPin)) {
-      ledState = "ON";
-    }
-    else {
-      ledState = "OFF";
-    }
-    return ledState;
+  if(var == "TEMP") {
+    return temp();
   }
+  
   return String();
 }
+
 
 void setup() {
   // Serial port for debugging purposes
   Serial.begin(115200);
+  sensors.begin();
 
   initLittleFS();
 
@@ -161,6 +213,7 @@ void setup() {
   Serial.println(gateway);
 
   if(initWiFi()) {
+    initWebSocket();
     // Route for root / web page
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
       request->send(LittleFS, "/index.html", "text/html", false, processor);
@@ -229,6 +282,7 @@ void setup() {
 }
 
 void loop() {
+  ws.cleanupClients();
   unsigned long currentTime = millis();
   digitalWrite(LED_PIN, LOW);
 
