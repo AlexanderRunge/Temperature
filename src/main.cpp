@@ -59,8 +59,24 @@ bool alreadyActivated = false;
 void initLittleFS() {
   if (!LittleFS.begin(true)) {
     Serial.println("An error has occurred while mounting LittleFS");
+  } else {
+    Serial.println("LittleFS mounted successfully");
   }
-  Serial.println("LittleFS mounted successfully");
+}
+
+void readLogCSV() {
+  File file = LittleFS.open("/log.csv", "r");
+  if (!file) {
+    Serial.println("❌ Kunne ikke åbne log.csv");
+    return;
+  }
+
+  Serial.println("📄 Indhold af log.csv:");
+  while (file.available()) {
+    String line = file.readStringUntil('\n');
+    Serial.println(line);
+  }
+  file.close();
 }
 
 // Read File from LittleFS
@@ -164,7 +180,7 @@ void logDataToCSV(const String &value) {
 }
 
 unsigned long lastLogTime = 0;
-const unsigned long logInterval = 300000; // 5 minutter i millisekunder
+const unsigned long logInterval = 10000; // 5 minutter i millisekunder
 bool timeInitialized = false;
 
 void setup() {
@@ -172,6 +188,8 @@ void setup() {
   Serial.begin(115200);
 
   initLittleFS();
+
+  readLogCSV();
 
   // Set GPIO 2 as an OUTPUT
   pinMode(ledPin, OUTPUT);
@@ -270,6 +288,7 @@ void setup() {
     }
     if (retry < 10) {
       Serial.println("\n✅ Tid hentet");
+      Serial.println("");
       timeInitialized = true;
     } else {
       Serial.println("\n❌ Kunne ikke hente tid");
