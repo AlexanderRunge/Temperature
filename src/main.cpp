@@ -337,7 +337,7 @@ void setup() {
 
   // Setup tid med NTP (kun hvis WiFi er forbundet)
   if (WiFi.status() == WL_CONNECTED) {
-    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    configTime(3600, 3600, "pool.ntp.org", "time.nist.gov");
     struct tm timeinfo;
     int retry = 0;
     while (!getLocalTime(&timeinfo) && retry < 10) {
