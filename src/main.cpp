@@ -297,6 +297,16 @@ void setup() {
 
     server.on("/csv", HTTP_GET, serveCSV);
 
+    // Route to set GPIO state to LOW
+    server.on("/off", HTTP_GET, [](AsyncWebServerRequest *request) {
+      digitalWrite(ledPin, LOW);
+      request->send(LittleFS, "/index.html", "text/html", false, processor);
+    });
+
+    // Route to download log.csv
+    server.on("/download", HTTP_GET, [](AsyncWebServerRequest *request) {
+      request->send(LittleFS, "/log.csv", "text/csv", true);
+    }); 
     server.begin();
   }
   else {
@@ -348,7 +358,7 @@ void setup() {
 
   // Setup tid med NTP (kun hvis WiFi er forbundet)
   if (WiFi.status() == WL_CONNECTED) {
-    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    configTime(3600, 3600, "pool.ntp.org", "time.nist.gov");
     struct tm timeinfo;
     int retry = 0;
     while (!getLocalTime(&timeinfo) && retry < 10) {
