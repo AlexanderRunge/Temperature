@@ -11,6 +11,7 @@
 #include "LittleFS.h"
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include <vector>
 
 // Create AsyncWebServer object on port 80
 AsyncWebServer server(80);
@@ -36,6 +37,11 @@ IPAddress localIP;
 // Timer variables
 unsigned long previousMillis = 0;
 const long interval = 10000;  // interval to wait for Wi-Fi connection (milliseconds)
+
+unsigned long lastBroadcastTime = 0; // Timer for broadcasting temperature
+const unsigned long broadcastInterval = 5000; // Broadcast every 5 seconds
+
+std::vector<String> tempLog; // List to store temperature readings
 
 const int oneWireBus = 4;   
 
@@ -70,12 +76,12 @@ void initLittleFS() {
   Serial.println("LittleFS mounted successfully");
 }
 
-String temp(){
+String temp() {
   sensors.requestTemperatures(); 
   float celsius = sensors.getTempCByIndex(0);
   Serial.print("Celsius: ");
   Serial.println(celsius);
-  return String(celsius) + " °C";
+  return String(celsius, 2) + " °C"; // Format temperature to 1 decimal place
 }
 
 // Read File from LittleFS
@@ -140,7 +146,9 @@ bool initWiFi() {
 }
 
 void notifyClients() {
-  ws.textAll(temp());
+  String temperature = temp();
+  ws.textAll(temperature); // Send temperature to all clients
+  tempLog.push_back(temperature); // Log the temperature
 }
 
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
@@ -149,7 +157,6 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
     data[len] = 0;
     if (strcmp((char*)data, "update") == 0) {
       Serial.println("Update request received from client.");
-      temp();
       notifyClients();
     }
   }
@@ -283,6 +290,14 @@ void setup() {
 
 void loop() {
   ws.cleanupClients();
+  
+  // Broadcast temperature to all clients every 5 seconds
+  unsigned long currentMillis = millis();
+  if (currentMillis - lastBroadcastTime >= broadcastInterval) {
+    lastBroadcastTime = currentMillis;
+    notifyClients(); // Send temperature update to all connected clients
+  }
+
   unsigned long currentTime = millis();
   digitalWrite(LED_PIN, LOW);
 
