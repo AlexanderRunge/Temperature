@@ -9,6 +9,8 @@
 #include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
 #include "LittleFS.h"
+#include "time.h"
+
 
 // Create AsyncWebServer object on port 80
 AsyncWebServer server(80);
@@ -23,7 +25,7 @@ String pass;
 String ip;
 String gateway;
 
-// File paths to save input values permanently
+// File paths to save input values permanentlya
 const char* ssidPath = "/ssid.txt";
 const char* passPath = "/pass.txt";
 
@@ -136,6 +138,33 @@ String processor(const String& var) {
   return String();
 }
 
+// Log data to CSV file
+void logDataToCSV(const String &value) {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    Serial.println("Kunne ikke hente tid");
+    return;
+  }
+
+  // Format time as YYYY-MM-DD HH:MM:SS
+  char timeString[25];
+  strftime(timeString, sizeof(timeString), "%Y-%m-%d %H:%M:%S", &timeinfo);
+  String logLine = String(timeString) + "," + value + "\n";
+
+  // Append to CSV file
+  File file = LittleFS.open("/log.csv", FILE_APPEND);
+  if (!file) {
+    Serial.println("Kunne ikke åbne log.csv");
+    return;
+  }
+  // Check if file is empty and write header if it is
+  file.print(logLine);
+  file.close();
+  Serial.println("Logget: " + logLine);
+}
+
+
+
 void setup() {
   // Serial port for debugging purposes
   Serial.begin(115200);
@@ -226,9 +255,19 @@ void setup() {
     });
     server.begin();
   }
+
+  //Setup timelogging
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    Serial.println("Failed to obtain time");
+  }
 }
 
 void loop() {
+  unsigned long lastLogTime = 0;
+  const unsigned long logInterval = 300000; // 5 minutter i millisekunder
+
   unsigned long currentTime = millis();
   digitalWrite(LED_PIN, LOW);
 
@@ -273,5 +312,14 @@ void loop() {
     digitalWrite(LED_PIN, LOW);
     ledOn = false;
     Serial.println("LED turned OFF after 5 seconds");
+  }
+
+  // Log data every 5 minutes
+  if (millis() - lastLogTime >= logInterval) {
+    lastLogTime = millis();
+
+    //log LED-tilstand
+    String ledValue = digitalRead(ledPin) ? "ON" : "OFF";
+    logDataToCSV(ledValue);
   }
 }
