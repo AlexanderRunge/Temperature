@@ -27,6 +27,7 @@
     </div>
     <script>
       var gateway = `ws://${window.location.hostname}/ws`;
+      var csvEndpoint = `http://${window.location.hostname}/csv`;
       var websocket;
     
       // Chart.js setup
@@ -65,45 +66,40 @@
         }
       });
 
-      window.addEventListener('load', onLoad);
-    
-      function initWebSocket() {
-        console.log('Trying to open a WebSocket connection...');
-        websocket = new WebSocket(gateway);
-        websocket.onopen = onOpen;
-        websocket.onclose = onClose;
-        websocket.onmessage = onMessage;
-      }
-    
-      function onOpen(event) {
-        console.log('Connection opened');
-      }
-    
-      function onClose(event) {
-        console.log('Connection closed');
-        setTimeout(initWebSocket, 2000);
-      }
-    
-      function onMessage(event) {
-        var temp = parseFloat(event.data.replace(' °C', '').trim()); // Parse temperature as a float
-        var currentTime = new Date().toLocaleTimeString(); // Get current time
+      // Hold all readings if you need them later
+      let allReadings = [];
 
-        // Add new data to the chart
-        tempChart.data.labels.push(currentTime);
-        tempChart.data.datasets[0].data.push(temp);
+      async function loadCSVData() {
+        try {
+          const res = await fetch(csvEndpoint);
+          const txt = await res.text();
+          // Split into lines, ignore any empty trailing line
+          const lines = txt.trim().split('\n');
+          allReadings = lines.map(line => {
+            const [time, tempWithUnit] = line.split(',');
+            return {
+              time: time.trim(),
+              temp: parseFloat(tempWithUnit.replace('°C', '').trim())
+            };
+          });
 
-        // Limit the number of data points to the last 10
-        if (tempChart.data.labels.length > 10) {
-          tempChart.data.labels.shift();
-          tempChart.data.datasets[0].data.shift();
+          // Take only the last ten readings for the chart
+          const lastTen = allReadings.slice(-10);
+
+          // Update chart data
+          tempChart.data.labels = lastTen.map(r => r.time);
+          tempChart.data.datasets[0].data = lastTen.map(r => r.temp);
+          tempChart.update();
+
+        } catch (e) {
+          console.error('Error loading CSV:', e);
         }
+      }
 
-        tempChart.update(); // Update the chart
-      }
-    
-      function onLoad(event) {
-        initWebSocket();
-      }
+      window.addEventListener('load', () => {
+        loadCSVData();
+        setInterval(loadCSVData, 5000);
+      });
     </script>
   </body>
 </html>
