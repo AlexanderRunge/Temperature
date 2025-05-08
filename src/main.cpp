@@ -42,6 +42,9 @@ IPAddress localIP;
 unsigned long previousMillis = 0;
 const long interval = 10000;  // interval to wait for Wi-Fi connection (milliseconds)
 
+unsigned long lastTimeSyncAttempt = 0;
+const unsigned long timeSyncIntervalMs = 60UL * 1000UL; // every 1 hour
+
 unsigned long lastBroadcastTime = 0; // Timer for broadcasting temperature
 const unsigned long broadcastInterval = 5000; // Broadcast every 5 seconds
 
@@ -104,7 +107,7 @@ void readLogCSV() {
 String temp() {
   sensors.requestTemperatures(); 
   float celsius = sensors.getTempCByIndex(0);
-  return String(celsius, 2) + " °C"; // Format temperature to 2 decimal place
+  return String(celsius, 2); // Format temperature to 2 decimal place
 }
 
 // Read File from LittleFS
@@ -211,12 +214,89 @@ void initWebSocket() {
   server.addHandler(&ws);
 }
 
+unsigned long lastLogTime = 0;
+bool timeInitialized = false;
+unsigned long logInterval = 10000; // Default log interval (10 seconds)
+float minTemp = 10.0; // Default minimum temperature
+float maxTemp = 30.0; // Default maximum temperature
+String timezone = "europe/copenhagen"; // Default timezone
+
+void loadSettings() {
+  // Read minTemp
+  String minTempStr = readFile(LittleFS, "/minTemp.txt");
+  if (minTempStr.length() > 0) {
+    minTemp = minTempStr.toFloat();
+    Serial.printf("Loaded minTemp: %.2f\n", minTemp);
+  } else {
+    writeFile(LittleFS, "/minTemp.txt", String(minTemp).c_str()); // Save default value
+  }
+
+  // Read maxTemp
+  String maxTempStr = readFile(LittleFS, "/maxTemp.txt");
+  if (maxTempStr.length() > 0) {
+    maxTemp = maxTempStr.toFloat();
+    Serial.printf("Loaded maxTemp: %.2f\n", maxTemp);
+  } else {
+    writeFile(LittleFS, "/maxTemp.txt", String(maxTemp).c_str()); // Save default value
+  }
+
+  // Read logInterval
+  String logIntervalStr = readFile(LittleFS, "/logInterval.txt");
+  if (logIntervalStr.length() > 0) {
+    logInterval = logIntervalStr.toInt() * 1000; // Convert seconds to milliseconds
+    Serial.printf("Loaded logInterval: %lu ms\n", logInterval);
+  } else {
+    writeFile(LittleFS, "/logInterval.txt", String(logInterval / 1000).c_str()); // Save default value
+  }
+
+  String timezoneStr = readFile(LittleFS, "/timezone.txt");
+  if (timezoneStr.length() > 0) {
+    timezone = timezoneStr;
+    Serial.printf("Loaded timezone: %s\n", timezone.c_str());
+  } else {
+    writeFile(LittleFS, "/timezone.txt", timezone.c_str()); // Save default value
+  }
+  Serial.println("Settings loaded successfully.");
+}
+
+void NTPSyncTime() {
+  lastTimeSyncAttempt = millis();
+  Serial.println("🔄 Attempting NTP re-sync");
+
+  // Reconfigure and retry once or twice
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  struct tm timeinfo;
+  if (getLocalTime(&timeinfo)) {
+    Serial.println("✅ Re-synced time via NTP");
+    timeInitialized = true;
+  } else {
+    Serial.println("❌ Re-sync failed — will try again later");
+  }
+}
+
 // Replaces placeholder with LED state value
 String processor(const String& var) {
-  if(var == "TEMP") {
+  if (var == "TEMP") {
     return temp();
   }
-  
+  if (var == "MIN_TEMP") {
+    return String(minTemp);          // e.g. "10.00"
+  }
+  if (var == "MAX_TEMP") {
+    return String(maxTemp);          // e.g. "30.00"
+  }
+  if (var == "LOG_INTERVAL") {
+    return String(logInterval);// seconds
+  }
+  if (var == "TIMEZONE") {
+    return String(timezone);                 // e.g. "Europe/Copenhagen"
+  }
+  if (var == "SSID") {
+    return String(ssid);
+  }
+  if (var == "PASS") {
+    return String(pass);
+  }
   return String();
 }
 
@@ -247,7 +327,7 @@ void logDataToCSV() {
 
   // Format time as YYYY-MM-DD HH:MM:SS
   char timeString[25];
-  strftime(timeString, sizeof(timeString), "%Y-%m-%d %H:%M:%S", &timeinfo);
+  strftime(timeString, sizeof(timeString), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
 
   // Get the current temperature
   String temperature = temp();
@@ -266,10 +346,6 @@ void logDataToCSV() {
   file.close();
   Serial.println("✅ Logged: " + logLine);
 }
-
-unsigned long lastLogTime = 0;
-const unsigned long logInterval = 10000; // 5 minutter i millisekunder
-bool timeInitialized = false;
 
 void setup() {
   // Serial port for debugging purposes
@@ -318,17 +394,89 @@ void setup() {
 
     server.on("/csv", HTTP_GET, serveCSV);
 
-    // Route to set GPIO state to LOW
-    server.on("/off", HTTP_GET, [](AsyncWebServerRequest *request) {
-      digitalWrite(ledPin, LOW);
-      request->send(LittleFS, "/index.html", "text/html", false, processor);
-    });
-
     // Route to download log.csv
     server.on("/download", HTTP_GET, [](AsyncWebServerRequest *request) {
-      request->send(LittleFS, "/log.csv", "text/csv", true);
+      request->send(LittleFS, "/log.csv", "text/csv; charset=utf-8", true);
     }); 
+
+    server.on("/settings.html", HTTP_GET, [](AsyncWebServerRequest *request) {
+      request->send(LittleFS, "/settings.html", "text/html", false, processor);
+    });
+
+    server.on("/settings", HTTP_POST, [](AsyncWebServerRequest *request) {
+      // Check and update Wi-Fi settings
+      if (request->hasParam("ssid", true) && request->hasParam("pass", true)) {
+        String ssid = request->getParam("ssid", true)->value();
+        String pass = request->getParam("pass", true)->value();
+        if (ssid.length() > 0) {
+          writeFile(LittleFS, ssidPath, ssid.c_str());
+          Serial.println("Wi-Fi SSID updated.");
+        } else {
+          Serial.println("SSID is empty → skipping save.");
+        }
+        if (pass.length() > 0) {
+          writeFile(LittleFS, passPath, pass.c_str());
+          Serial.println("Wi-Fi password updated.");
+        } else {
+          Serial.println("Password is empty → skipping save.");
+        }
+      } else if (request->hasParam("ssid", true)) {
+        Serial.println("Missing password parameter.");
+      } else if (request->hasParam("pass", true)) {
+        Serial.println("Missing SSID parameter.");
+      }
+    
+      // Check and update min temperature
+      if (request->hasParam("minTemp", true)) {
+        String minTempValue = request->getParam("minTemp", true)->value();
+        if (minTempValue.length() > 0) {
+          writeFile(LittleFS, "/minTemp.txt", minTempValue.c_str());
+          Serial.println("Minimum temperature updated.");
+        } else {
+          Serial.println("minTemp is empty → skipping save.");
+        }
+      }
+
+      // Check and update max temperature
+      if (request->hasParam("maxTemp", true)) {
+        String maxTemp = request->getParam("maxTemp", true)->value();
+        if (maxTemp.length() > 0) {
+          writeFile(LittleFS, "/maxTemp.txt", maxTemp.c_str());
+          Serial.println("Maximum temperature updated.");
+        } else {
+          Serial.println("maxTemp is empty → skipping save.");
+        }
+      }
+    
+      // Check and update timezone
+      if (request->hasParam("timezone", true)) {
+        String timezone = request->getParam("timezone", true)->value();
+        if (timezone.length() > 0) {
+          writeFile(LittleFS, "/timezone.txt", timezone.c_str());
+          Serial.println("Timezone updated.");
+        } else {
+          Serial.println("Timezone is empty → skipping save.");
+        }
+      }
+    
+      // Check and update logging interval
+      if (request->hasParam("logInterval", true)) {
+        String logInterval = request->getParam("logInterval", true)->value();
+        if (logInterval.length() > 0) {
+          writeFile(LittleFS, "/logInterval.txt", logInterval.c_str());
+          Serial.println("Logging interval updated.");
+        } else {
+          Serial.println("logInterval is empty → skipping save.");
+        }
+      }
+  
+      request->send(200, "text/plain", "Settings saved. Restarting...");
+      delay(2000);
+      request->send(LittleFS, "/index.html", "text/html", false, processor);
+      ESP.restart();
+    });
     server.begin();
+    
   }
   else {
     // Connect to Wi-Fi network with SSID and password
@@ -380,25 +528,9 @@ void setup() {
     });
     server.begin();
   }
-
-  // Setup tid med NTP (kun hvis WiFi er forbundet)
-  if (WiFi.status() == WL_CONNECTED) {
-    configTime(3600, 3600, "pool.ntp.org", "time.nist.gov");
-    struct tm timeinfo;
-    int retry = 0;
-    while (!getLocalTime(&timeinfo) && retry < 10) {
-      Serial.print(".");
-      delay(1000);
-      retry++;
-    }
-    if (retry < 10) {
-      Serial.println("\n✅ Tid hentet");
-      Serial.println("");
-      timeInitialized = true;
-    } else {
-      Serial.println("\n❌ Kunne ikke hente tid");
-    }
-  }
+  loadSettings(); // Load settings from LittleFS
+  Serial.println("Settings loaded.");
+  NTPSyncTime(); // Sync time with NTP server
 }
 
 void loop() {
@@ -406,6 +538,10 @@ void loop() {
 
   unsigned long currentTime = millis();
   digitalWrite(LED_PIN, LOW);
+
+  if (WiFi.status() == WL_CONNECTED && millis() - lastTimeSyncAttempt > timeSyncIntervalMs) {
+    NTPSyncTime(); // Sync time with NTP server
+  }
 
   if (!alreadyActivated) {
     if (currentTime - lastCheckTime >= 1000) {
@@ -455,17 +591,8 @@ void loop() {
 
   // Log data hver 5. minut, men kun hvis vi har internet og tid er sat
   if (WiFi.status() == WL_CONNECTED && timeInitialized && millis() - lastLogTime >= logInterval) {
+    Serial.println("Logging data to CSV...");
     lastLogTime = millis();
     logDataToCSV();
-  }
-
-  // Hvis vi ikke har tid endnu, prøv igen når der er internet
-  if (!timeInitialized && WiFi.status() == WL_CONNECTED) {
-    struct tm timeinfo;
-    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-    if (getLocalTime(&timeinfo)) {
-      Serial.println("⏱️ Tid er nu synkroniseret");
-      timeInitialized = true;
-    }
   }
 }
