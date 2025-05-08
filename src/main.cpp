@@ -13,6 +13,8 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <vector>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 
 
 // Create AsyncWebServer object on port 80
@@ -61,6 +63,10 @@ String ledState;
 #define LED_PIN 19
 #define BTN_PIN 35
 
+//Defining OLED
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 32
+
 //Button related
 unsigned long lastCheckTime = 0;
 unsigned long ledOnTime = 0;
@@ -68,7 +74,8 @@ int holdSeconds = 0;
 bool ledOn = false;
 bool alreadyActivated = false;
 
-//
+//OLED screen
+Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 // Initialize LittleFS
 void initLittleFS() {
@@ -158,6 +165,10 @@ bool initWiFi() {
   }
 
   Serial.println(WiFi.localIP());
+  oled.clearDisplay();
+  oled.setCursor(0, 10); 
+  oled.print(WiFi.localIP());
+  oled.display();
   return true;
 }
 
@@ -287,6 +298,16 @@ void setup() {
   Serial.println(ip);
   Serial.println(gateway);
 
+  //Setting up OLED
+  if (!oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("failed to start SSD1306 OLED"));
+    while (1);
+  }
+
+  oled.clearDisplay();
+  oled.setTextSize(1);
+  oled.setTextColor(WHITE);
+
   if(initWiFi()) {
     initWebSocket();
     // Route for root / web page
@@ -318,6 +339,10 @@ void setup() {
     IPAddress IP = WiFi.softAPIP();
     Serial.print("AP IP address: ");
     Serial.println(IP); 
+    oled.clearDisplay();
+    oled.setCursor(0, 0);
+    oled.print(IP);
+    oled.display();
 
     // Web Server Root URL
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
