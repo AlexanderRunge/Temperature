@@ -415,9 +415,12 @@ void loop() {
 
       if (buttonState == HIGH) {
         holdSeconds++;
-        Serial.print("Button held for ");
-        Serial.print(holdSeconds);
-        Serial.println(" second(s)");
+        oled.clearDisplay();
+        oled.setCursor(0, 0);
+        oled.print("Button held for ");
+        oled.print(holdSeconds);
+        oled.println(" second(s)");
+        oled.display();
 
         if (holdSeconds >= 10 && !ledOn) {
           digitalWrite(LED_PIN, HIGH);
