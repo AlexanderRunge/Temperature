@@ -85,11 +85,11 @@ void initLittleFS() {
 void readLogCSV() {
   File file = LittleFS.open("/log.csv", "r");
   if (!file) {
-    Serial.println("Kunne ikke åbne log.csv");
+    Serial.println("Could not open log.csv");
     return;
   }
 
-  Serial.println("Indhold af log.csv:");
+  Serial.println("Contents of log.csv:");
   while (file.available()) {
     String line = file.readStringUntil('\n');
     Serial.println(line);
@@ -584,7 +584,6 @@ void loop() {
     Serial.println("LED turned OFF after 5 seconds");
   }
 
-  // Log data hver 5. minut, men kun hvis vi har internet og tid er sat
   if (WiFi.status() == WL_CONNECTED && timeInitialized && millis() - lastLogTime >= logInterval) {
     Serial.println("Logging data to CSV...");
     lastLogTime = millis();
