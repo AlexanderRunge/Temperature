@@ -1,9 +1,3 @@
-/*********
-  Rui Santos & Sara Santos - Random Nerd Tutorials
-  Complete instructions at https://RandomNerdTutorials.com/esp32-wi-fi-manager-asyncwebserver/
-  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files.
-  The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-*********/
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
@@ -36,7 +30,6 @@ const char* ssidPath = "/ssid.txt";
 const char* passPath = "/pass.txt";
 
 IPAddress localIP;
-//IPAddress localIP(192, 168, 1, 200); // hardcoded
 
 // Timer variables
 unsigned long previousMillis = 0;
@@ -92,11 +85,11 @@ void initLittleFS() {
 void readLogCSV() {
   File file = LittleFS.open("/log.csv", "r");
   if (!file) {
-    Serial.println("❌ Kunne ikke åbne log.csv");
+    Serial.println("Kunne ikke åbne log.csv");
     return;
   }
 
-  Serial.println("📄 Indhold af log.csv:");
+  Serial.println("Indhold af log.csv:");
   while (file.available()) {
     String line = file.readStringUntil('\n');
     Serial.println(line);
@@ -261,16 +254,16 @@ void loadSettings() {
 
 void NTPSyncTime() {
   lastTimeSyncAttempt = millis();
-  Serial.println("🔄 Attempting NTP re-sync");
+  Serial.println("Attempting NTP re-sync");
 
   // Reconfigure and retry once or twice
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
   struct tm timeinfo;
   if (getLocalTime(&timeinfo)) {
-    Serial.println("✅ Re-synced time via NTP");
+    Serial.println("Re-synced time via NTP");
     timeInitialized = true;
   } else {
-    Serial.println("❌ Re-sync failed — will try again later");
+    Serial.println("Re-sync failed — will try again later");
   }
 }
 
@@ -280,16 +273,16 @@ String processor(const String& var) {
     return temp();
   }
   if (var == "MIN_TEMP") {
-    return String(minTemp);          // e.g. "10.00"
+    return String(minTemp);
   }
   if (var == "MAX_TEMP") {
-    return String(maxTemp);          // e.g. "30.00"
+    return String(maxTemp);
   }
   if (var == "LOG_INTERVAL") {
-    return String(logInterval);// seconds
+    return String(logInterval);
   }
   if (var == "TIMEZONE") {
-    return String(timezone);                 // e.g. "Europe/Copenhagen"
+    return String(timezone);
   }
   if (var == "SSID") {
     return String(ssid);
@@ -321,11 +314,12 @@ void serveCSV(AsyncWebServerRequest *request) {
 void logDataToCSV() {
   struct tm timeinfo;
   if (!getLocalTime(&timeinfo)) {
-    Serial.println("❌ Could not fetch time");
+    Serial.println("Could not fetch time");
     return;
   }
 
-  // Format time as YYYY-MM-DD HH:MM:SS
+  // Format time as ISO 8601 string
+  // e.g. "2023-10-01T12:34:56Z"
   char timeString[25];
   strftime(timeString, sizeof(timeString), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
 
@@ -333,18 +327,18 @@ void logDataToCSV() {
   String temperature = temp();
 
   // Create a log line with time and temperature
-  String logLine = String(timeString) + "," + temperature; // Ensure newline character
+  String logLine = String(timeString) + "," + temperature;
 
   // Append to CSV file
   File file = LittleFS.open("/log.csv", FILE_APPEND);
   if (!file) {
-    Serial.println("❌ Could not open log.csv");
+    Serial.println("Could not open log.csv");
     return;
   }
 
-  file.println(logLine); // Write the log line
+  file.println(logLine);
   file.close();
-  Serial.println("✅ Logged: " + logLine);
+  Serial.println("Logged: " + logLine);
 }
 
 void setup() {
@@ -556,6 +550,7 @@ void loop() {
         oled.print("Button held for ");
         oled.print(holdSeconds);
         oled.println(" second(s)");
+        oled.println(WiFi.localIP());
         oled.display();
 
         if (holdSeconds >= 10 && !ledOn) {
