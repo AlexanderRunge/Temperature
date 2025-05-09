@@ -23,13 +23,10 @@ const char* PARAM_INPUT_2 = "pass";
 String ssid;
 String pass;
 String ip;
-String gateway;
 
 // File paths to save input values permanentlya
 const char* ssidPath = "/ssid.txt";
 const char* passPath = "/pass.txt";
-
-IPAddress localIP;
 
 // Timer variables
 unsigned long previousMillis = 0;
@@ -40,8 +37,6 @@ const unsigned long timeSyncIntervalMs = 60UL * 1000UL; // every 1 hour
 
 unsigned long lastBroadcastTime = 0; // Timer for broadcasting temperature
 const unsigned long broadcastInterval = 5000; // Broadcast every 5 seconds
-
-std::vector<String> tempLog; // List to store temperature readings
 
 const int oneWireBus = 4;   
 
@@ -171,7 +166,6 @@ bool initWiFi() {
 void notifyClients() {
   String temperature = temp();
   ws.textAll(temperature); // Send temperature to all clients
-  tempLog.push_back(temperature); // Log the temperature
 }
 
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
@@ -242,6 +236,7 @@ void loadSettings() {
     writeFile(LittleFS, "/logInterval.txt", String(logInterval / 1000).c_str()); // Save default value
   }
 
+  // Read timezone
   String timezoneStr = readFile(LittleFS, "/timezone.txt");
   if (timezoneStr.length() > 0) {
     timezone = timezoneStr;
@@ -267,11 +262,8 @@ void NTPSyncTime() {
   }
 }
 
-// Replaces placeholder with LED state value
+// Replaces placeholder in html, with parameter value
 String processor(const String& var) {
-  if (var == "TEMP") {
-    return temp();
-  }
   if (var == "MIN_TEMP") {
     return String(minTemp);
   }
@@ -283,12 +275,6 @@ String processor(const String& var) {
   }
   if (var == "TIMEZONE") {
     return String(timezone);
-  }
-  if (var == "SSID") {
-    return String(ssid);
-  }
-  if (var == "PASS") {
-    return String(pass);
   }
   return String();
 }
@@ -366,7 +352,9 @@ void setup() {
   Serial.println(ssid);
   Serial.println(pass);
   Serial.println(ip);
-  Serial.println(gateway);
+
+  digitalWrite(LED_PIN, LOW);
+  ledOn = false;
 
   //Setting up OLED
   if (!oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
@@ -476,7 +464,7 @@ void setup() {
     // Connect to Wi-Fi network with SSID and password
     Serial.println("Setting AP (Access Point)");
     // NULL sets an open Access Point
-    WiFi.softAP("ESP-WIFI-MANAGER", NULL);
+    WiFi.softAP("ACD-ESP-WiFi-Manager", NULL);
 
     IPAddress IP = WiFi.softAPIP();
     Serial.print("AP IP address: ");
@@ -572,7 +560,13 @@ void loop() {
         }
       } else {
         if (holdSeconds > 0) {
-          Serial.println("Button released — timer reset");
+          Serial.println("Button released  timer reset");
+          oled.clearDisplay();
+          oled.setCursor(0, 0);
+          oled.println("Button released  timer reset");
+          oled.display();
+          oled.println(WiFi.localIP());
+          oled.display();
         }
         holdSeconds = 0;
       }
